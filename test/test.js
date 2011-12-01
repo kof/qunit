@@ -24,6 +24,7 @@ test("module with setup", function() {
 	ok(true);
 });
 
+
 test("module with setup, expect in test call", 2, function() {
 	ok(true);
 });
@@ -68,6 +69,28 @@ test("teardown must be called after test ended", function() {
 		state = "done";
 		start();
 	}, 13);
+});
+
+test("parameter passed to stop increments semaphore n times", function() {
+	expect(1);
+	stop(3);
+	setTimeout(function() {
+		state = "not enough starts";
+		start(), start();
+	}, 13);
+	setTimeout(function() {
+		state = "done";
+		start();
+	}, 15);
+});
+
+test("parameter passed to start decrements semaphore n times", function() {
+	expect(1);
+	stop(), stop(), stop();
+	setTimeout(function() {
+		state = "done";
+		start(3);
+	}, 18);
 });
 
 module("async setup test", {
@@ -224,11 +247,11 @@ test("each test can extend the module testEnvironment", {
 
 module("jsDump");
 test("jsDump output", function() {
-	equals( QUnit.jsDump.parse([1, 2]), "[\n  1,\n  2\n]" );
-	equals( QUnit.jsDump.parse({top: 5, left: 0}), "{\n  \"top\": 5,\n  \"left\": 0\n}" );
+	equal( QUnit.jsDump.parse([1, 2]), "[\n  1,\n  2\n]" );
+	equal( QUnit.jsDump.parse({top: 5, left: 0}), "{\n  \"top\": 5,\n  \"left\": 0\n}" );
 	if (typeof document !== 'undefined' && document.getElementById("qunit-header")) {
-		equals( QUnit.jsDump.parse(document.getElementById("qunit-header")), "<h1 id=\"qunit-header\"></h1>" );
-		equals( QUnit.jsDump.parse(document.getElementsByTagName("h1")), "[\n  <h1 id=\"qunit-header\"></h1>\n]" );
+		equal( QUnit.jsDump.parse(document.getElementById("qunit-header")), "<h1 id=\"qunit-header\"></h1>" );
+		equal( QUnit.jsDump.parse(document.getElementsByTagName("h1")), "[\n  <h1 id=\"qunit-header\"></h1>\n]" );
 	}
 });
 
@@ -321,14 +344,14 @@ function chainwrap(depth, first, prev) {
     depth = depth || 0;
     var last = prev || new Wrap();
     first = first || last;
-    
+
     if (depth == 1) {
         first.wrap = last;
-    } 
+    }
     if (depth > 1) {
         last = chainwrap(depth-1, first, new Wrap(last));
     }
-    
+
     return last;
 }
 
@@ -346,7 +369,7 @@ test("check jsDump recursion", function() {
     var parentref = chainwrap(2);
     var parentdump = QUnit.jsDump.parse(parentref);
     equal(parentdump, '{\n  "wrap": {\n    "wrap": recursion(-2),\n    "first": true\n  }\n}');
-    
+
     var circref = chainwrap(10);
     var circdump = QUnit.jsDump.parse(circref);
     ok(new RegExp("recursion\\(-10\\)").test(circdump), "(" +circdump + ") should show -10 recursion level");
@@ -372,7 +395,7 @@ test('Circular reference with arrays', function() {
     // pure array self-ref
     var arr = [];
     arr.push(arr);
-    
+
     var arrdump = QUnit.jsDump.parse(arr);
 
     equal(arrdump, '[\n  recursion(-1)\n]');
@@ -383,16 +406,16 @@ test('Circular reference with arrays', function() {
     var obj = {};
     var childarr = [obj];
     obj.childarr = childarr;
-    
+
     var objdump = QUnit.jsDump.parse(obj);
     var childarrdump = QUnit.jsDump.parse(childarr);
-    
+
     equal(objdump, '{\n  "childarr": [\n    recursion(-2)\n  ]\n}');
     equal(childarrdump, '[\n  {\n    "childarr": recursion(-2)\n  }\n]');
-    
+
     equal(obj.childarr, childarr, 'no endless stack when trying to dump array/object mix with circular ref');
     equal(childarr[0], obj, 'no endless stack when trying to dump array/object mix with circular ref');
-    
+
 });
 
 
@@ -438,12 +461,64 @@ test('Circular reference - test reported by soniciq in #105', function() {
 	});
 })();
 
-module("noglobals", {
-	teardown: function() {
-		delete window.badGlobalVariableIntroducedInTest;
+if (typeof setTimeout !== 'undefined') {
+function testAfterDone(){
+	var testName = "ensure has correct number of assertions";
+
+	function secondAfterDoneTest(){
+		QUnit.config.done = [];
+		//QUnit.done = function(){};
+		//because when this does happen, the assertion count parameter doesn't actually
+		//work we use this test to check the assertion count.
+		module("check previous test's assertion counts");
+		test('count previous two test\'s assertions', function(){
+			var spans = document.getElementsByTagName('span'),
+			tests = [],
+			countNodes;
+
+			//find these two tests
+			for (var i = 0; i < spans.length; i++) {
+				if (spans[i].innerHTML.indexOf(testName) !== -1) {
+					tests.push(spans[i]);
+				}
+			}
+
+			//walk dom to counts
+			countNodes = tests[0].nextSibling.nextSibling.getElementsByTagName('b');
+			equal(countNodes[1].innerHTML, "99");
+			countNodes = tests[1].nextSibling.nextSibling.getElementsByTagName('b');
+			equal(countNodes[1].innerHTML, "99");
+		});
 	}
-});
-test("let teardown clean up globals", function() {
-	// this test will always pass if run without ?noglobals=true
-	window.badGlobalVariableIntroducedInTest = true;
-});
+	QUnit.config.done = [];
+	QUnit.done(secondAfterDoneTest);
+
+	module("Synchronous test after load of page");
+
+	asyncTest('Async test', function(){
+		start();
+		for (var i = 1; i < 100; i++) {
+			ok(i);
+		}
+	});
+
+	test(testName, 99, function(){
+		for (var i = 1; i < 100; i++) {
+			ok(i);
+		}
+	});
+
+	//we need two of these types of tests in order to ensure that assertions
+	//don't move between tests.
+	test(testName + ' 2', 99, function(){
+		for (var i = 1; i < 100; i++) {
+			ok(i);
+		}
+	});
+
+
+}
+
+QUnit.done(testAfterDone);
+
+}
